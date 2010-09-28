@@ -55,7 +55,29 @@ lm.me.cost <- lme(Rating ~ 1+ HeatSource + BrickOven, data=za.df,
 		control=list(returnObject=TRUE))
 AIC(lm.full.main, lm.no, lm.me.int, lm.me.cost)
 
-lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (0+CostPerSlice | Neighborhood), 
+lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
 	data=za.df)
+AIC(lm.me.cost2)
+
+
+jlza.df <- read.csv("Pizza Diverse.csv")
+
+contrasts(jlza.df$Fuel) <- contr.treatment(levels(jlza.df$Fuel), 
+	base=which(levels(jlza.df$Fuel) == 'Gas'))
+
+ggplot(jlza.df, aes(Price.Level, Rating)) + geom_jitter() +
+	facet_wrap(~ Neighborhood) + 
+	geom_smooth(method='lm', se=FALSE, size=2)
+
+# full pooling
+lm.full.main <- glm(Rating ~ Price.Level + Fuel + PizzaName, data=jlza.df)
+# no pooling
+lm.no <- glm(Rating ~ Fuel + PizzaName + Price.Level + Price.Level:Neighborhood, 
+		data=jlza.df,
+		contrasts=list(Neighborhood="contr.sum"))
+
+lm.me.cost2 <- lmer(Rating ~ Fuel + PizzaName + (0 + Price.Level | Neighborhood), 
+	data=jlza.df)
+summary(lm.me.cost2)
 
 
