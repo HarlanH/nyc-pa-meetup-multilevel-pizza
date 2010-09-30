@@ -14,23 +14,25 @@ summary(za.df)
 # fix cost column
 za.df$CostPerSlice <- as.numeric(str_sub(za.df$CostPerSlice, 2))
 
-qplot(za.df$Rating)
-qplot(za.df$CostPerSlice)
-
-ggplot(za.df, aes(CostPerSlice, Rating)) + geom_point() +
-	facet_wrap(~ Neighborhood) + 
-	geom_smooth(method='lm', se=FALSE, size=2)
-
-# basics with linear model
-
 # get the contrasts right for HeatSource
 contrasts(za.df$HeatSource) <- contr.treatment(levels(za.df$HeatSource), 
 	base=which(levels(za.df$HeatSource) == 'Gas'))
 
+qplot(za.df$Rating)
+qplot(za.df$CostPerSlice, binwidth=.25)
+
+ggplot(za.df, aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
+	facet_wrap(~ Neighborhood) + 
+	geom_smooth(aes(color=NULL), color='black', method='lm', se=FALSE, size=2)
+
+# basics with linear model
+
+
 # full pooling
 lm.full.main <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df)
 lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource + BrickOven + CostPerSlice:BrickOven, data=za.df)
-AIC(lm.full.main, lm.full.int) # not actually better
+AIC(lm.full.main, lm.full.int) 
+summary(lm.full.int)
 cv.glm(za.df, lm.full.main, K=10)$delta
 cv.glm(za.df, lm.full.int, K=10)$delta # overfitting
 
@@ -40,24 +42,38 @@ lm.no <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven + Neighborhood,
 		contrasts=list(Neighborhood="contr.sum"))
 
 cv.glm(za.df, lm.no, K=10)$delta 
+summary(lm.no)
+
 
 lm.no.int <- glm(Rating ~ HeatSource + BrickOven + CostPerSlice * Neighborhood, 
 		data=za.df,
 		contrasts=list(Neighborhood="contr.sum"))
 cv.glm(za.df, lm.no.int, K=10)$delta 
+summary(lm.no.int)
 
 # partial pooling, intercepts/neighborhood
 lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df,
 		random = ~ 1 | Neighborhood)
 AIC(lm.me.int)
 lm.me.cost <- lme(Rating ~ 1+ HeatSource + BrickOven, data=za.df,
-		random = ~ 0 + CostPerSlice | Neighborhood, 
+		random = ~ 1 + CostPerSlice | Neighborhood, 
 		control=list(returnObject=TRUE))
 AIC(lm.full.main, lm.no, lm.me.int, lm.me.cost)
 
 lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
 	data=za.df)
 AIC(lm.me.cost2)
+
+ranef(lm.me.cost2)
+coef(lm.no.int)
+
+# sample from fit ME model
+
+# cross-validation error
+
+
+
+
 
 
 jlza.df <- read.csv("Pizza Diverse.csv")
@@ -76,8 +92,11 @@ lm.no <- glm(Rating ~ Fuel + PizzaName + Price.Level + Price.Level:Neighborhood,
 		data=jlza.df,
 		contrasts=list(Neighborhood="contr.sum"))
 
-lm.me.cost2 <- lmer(Rating ~ Fuel + PizzaName + (0 + Price.Level | Neighborhood), 
+lm.me.cost2 <- lmer(Rating ~ Fuel + PizzaName + Price.Level + (0 + Price.Level | Neighborhood), 
 	data=jlza.df)
 summary(lm.me.cost2)
+
+
+
 
 
