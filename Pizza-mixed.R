@@ -32,24 +32,35 @@ ggplot(za.df, aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
 lm.full.main <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df)
 lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource + BrickOven + CostPerSlice:BrickOven, data=za.df)
 AIC(lm.full.main, lm.full.int) 
-summary(lm.full.int)
-cv.glm(za.df, lm.full.main, K=10)$delta
-cv.glm(za.df, lm.full.int, K=10)$delta # overfitting
+summary(lm.full.main)
+set.seed(11102)
+cv.glm(za.df, lm.full.main, K=10)$delta[[2]]
+set.seed(11102)
+cv.glm(za.df, lm.full.int, K=10)$delta[[2]] # overfitting
+
+za.df$lm.full.pred <- predict(lm.full.main)
 
 # no pooling
 lm.no <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven + Neighborhood, 
 		data=za.df,
 		contrasts=list(Neighborhood="contr.sum"))
 
-cv.glm(za.df, lm.no, K=10)$delta 
+set.seed(11102)
+cv.glm(za.df, lm.no, K=10)$delta[[2]]
+
 summary(lm.no)
 
 
 lm.no.int <- glm(Rating ~ HeatSource + BrickOven + CostPerSlice * Neighborhood, 
 		data=za.df,
 		contrasts=list(Neighborhood="contr.sum"))
-cv.glm(za.df, lm.no.int, K=10)$delta 
+
+set.seed(11102)
+cv.glm(za.df, lm.no.int, K=10)$delta[[2]]
+
 summary(lm.no.int)
+
+za.df$lm.no.pred <- predict(lm.no.int)
 
 # partial pooling, intercepts/neighborhood
 lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df,
@@ -57,46 +68,40 @@ lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df,
 AIC(lm.me.int)
 lm.me.cost <- lme(Rating ~ 1+ HeatSource + BrickOven, data=za.df,
 		random = ~ 1 + CostPerSlice | Neighborhood, 
-		control=list(returnObject=TRUE))
-AIC(lm.full.main, lm.no, lm.me.int, lm.me.cost)
+		control=list(returnObject=TRUE, opt="optim"))
+AIC(lm.full.main, lm.no, lm.no.int, lm.me.int, lm.me.cost)
 
-lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
-	data=za.df)
-AIC(lm.me.cost2)
+za.df$lme.pred <- predict(lm.me.cost)
 
-ranef(lm.me.cost2)
-coef(lm.no.int)
+set.seed(11102)
+cv.lme(za.df, lm.me.cost, K=10)$delta[[2]]
 
-# sample from fit ME model
+# lmer is great, but it's difficult to predict from it!
+#lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
+#	data=za.df)
+#AIC(lm.me.cost2)
 
-# cross-validation error
+#ranef(lm.me.cost2)
+
+#coef(lm.no.int)
 
 
 
-
-
-
-jlza.df <- read.csv("Pizza Diverse.csv")
-
-contrasts(jlza.df$Fuel) <- contr.treatment(levels(jlza.df$Fuel), 
-	base=which(levels(jlza.df$Fuel) == 'Gas'))
-
-ggplot(jlza.df, aes(Price.Level, Rating)) + geom_jitter() +
+# visualize partial pooling
+base.plot <- ggplot(za.df, aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
 	facet_wrap(~ Neighborhood) + 
-	geom_smooth(method='lm', se=FALSE, size=2)
+	geom_smooth(aes(color=NULL), color='darkgrey', method='lm', se=FALSE, size=1.5)
 
-# full pooling
-lm.full.main <- glm(Rating ~ Price.Level + Fuel + PizzaName, data=jlza.df)
-# no pooling
-lm.no <- glm(Rating ~ Fuel + PizzaName + Price.Level + Price.Level:Neighborhood, 
-		data=jlza.df,
-		contrasts=list(Neighborhood="contr.sum"))
+base.plot +
+	geom_smooth(aes(y=lm.full.pred), method='lm', se=FALSE, size=1.5) +
+	opts(title='Full Pooling')
+	
+base.plot +
+	geom_smooth(aes(y=lm.no.pred), method='lm', se=FALSE, size=1.5) +
+	opts(title='No Pooling')
 
-lm.me.cost2 <- lmer(Rating ~ Fuel + PizzaName + Price.Level + (0 + Price.Level | Neighborhood), 
-	data=jlza.df)
-summary(lm.me.cost2)
-
-
-
+base.plot +
+	geom_smooth(aes(y=lme.pred), method='lm', se=FALSE, size=1.5) +
+	opts(title='Partial Pooling (Hierarchical)')
 
 
