@@ -6,6 +6,8 @@ library(nlme)
 library(lme4)
 library(boot)
 
+source("cv_subset.R")
+
 za.df <- read.csv("Fake Pizza Data.csv")
 
 # some basic summaries and visualizations
@@ -17,6 +19,8 @@ za.df$CostPerSlice <- as.numeric(str_sub(za.df$CostPerSlice, 2))
 # get the contrasts right for HeatSource
 contrasts(za.df$HeatSource) <- contr.treatment(levels(za.df$HeatSource), 
 	base=which(levels(za.df$HeatSource) == 'Gas'))
+
+inchinatown <- za.df$Neighborhood == 'Chinatown'
 
 qplot(za.df$Rating)
 qplot(za.df$CostPerSlice, binwidth=.25)
@@ -34,9 +38,9 @@ lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource + BrickOven + CostPerSlice
 AIC(lm.full.main, lm.full.int) 
 summary(lm.full.main)
 set.seed(11102)
-cv.glm(za.df, lm.full.main, K=10)$delta[[2]]
-set.seed(11102)
-cv.glm(za.df, lm.full.int, K=10)$delta[[2]] # overfitting
+cvsub.glm(za.df, lm.full.main, K=10, cv.subset=inchinatown)$delta
+#set.seed(11102)
+#cv.glm(za.df, lm.full.int, K=10)$delta[[2]] # overfitting
 
 za.df$lm.full.pred <- predict(lm.full.main)
 
@@ -46,7 +50,7 @@ lm.no <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven + Neighborhood,
 		contrasts=list(Neighborhood="contr.sum"))
 
 set.seed(11102)
-cv.glm(za.df, lm.no, K=10)$delta[[2]]
+cvsub.glm(za.df, lm.no, K=10, cv.subset=inchinatown)$delta #[[2]]
 
 summary(lm.no)
 
@@ -56,7 +60,7 @@ lm.no.int <- glm(Rating ~ HeatSource + BrickOven + CostPerSlice * Neighborhood,
 		contrasts=list(Neighborhood="contr.sum"))
 
 set.seed(11102)
-cv.glm(za.df, lm.no.int, K=10)$delta[[2]]
+cvsub.glm(za.df, lm.no.int, K=10, cv.subset=inchinatown)$delta #[[2]]
 
 summary(lm.no.int)
 
@@ -68,13 +72,13 @@ lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df,
 AIC(lm.me.int)
 lm.me.cost <- lme(Rating ~ 1+ HeatSource + BrickOven, data=za.df,
 		random = ~ 1 + CostPerSlice | Neighborhood, 
-		control=list(returnObject=TRUE, opt="optim"))
+		control=list(returnObject=TRUE)) #, opt="optim"
 AIC(lm.full.main, lm.no, lm.no.int, lm.me.int, lm.me.cost)
 
 za.df$lme.pred <- predict(lm.me.cost)
 
 set.seed(11102)
-cv.lme(za.df, lm.me.cost, K=10)$delta[[2]]
+cvsub.lme(za.df, lm.me.cost, K=10, cv.subset = inchinatown)$delta #[[2]]
 
 # lmer is great, but it's difficult to predict from it!
 #lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
