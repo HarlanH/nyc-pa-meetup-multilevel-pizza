@@ -22,10 +22,20 @@ contrasts(za.df$HeatSource) <- contr.treatment(levels(za.df$HeatSource),
 
 inchinatown <- za.df$Neighborhood == 'Chinatown'
 
+# center the scalars, and construct a function to uncenter them
+mean.cps <- mean(za.df$CostPerSlice)
+mean.rating <- mean(za.df$Rating)
+za.df$CostPerSlice <- za.df$CostPerSlice - mean.cps
+za.df$Rating <- za.df$Rating - mean.rating
+center <- function(df) transform(df, CostPerSlice=CostPerSlice-mean.cps,
+			Rating=Rating-mean.rating)
+uncenter <- function(df) transform(df, CostPerSlice=CostPerSlice+mean.cps,
+			Rating=Rating+mean.rating)
+
 qplot(za.df$Rating)
 qplot(za.df$CostPerSlice, binwidth=.25)
 
-ggplot(za.df, aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
+ggplot(uncenter(za.df), aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
 	facet_wrap(~ Neighborhood) + 
 	geom_smooth(aes(color=NULL), color='black', method='lm', se=FALSE, size=2)
 
@@ -70,9 +80,9 @@ za.df$lm.no.pred <- predict(lm.no.int)
 lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df,
 		random = ~ 1 | Neighborhood)
 AIC(lm.me.int)
-lm.me.cost <- lme(Rating ~ 1+ HeatSource + BrickOven, data=za.df,
-		random = ~ 1 + CostPerSlice | Neighborhood, 
-		control=list(returnObject=TRUE)) #, opt="optim"
+lm.me.cost <- lme(Rating ~ 1 + HeatSource + BrickOven, data=za.df,
+		random = ~ 0 + CostPerSlice | Neighborhood, 
+		control=list(returnObject=TRUE, msMaxEval=1000)) #, opt="optim"
 AIC(lm.full.main, lm.no, lm.no.int, lm.me.int, lm.me.cost)
 
 za.df$lme.pred <- predict(lm.me.cost)
