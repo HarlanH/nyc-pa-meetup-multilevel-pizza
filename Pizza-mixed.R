@@ -5,6 +5,7 @@ library(ggplot2)
 library(nlme)
 library(lme4)
 library(boot)
+library(arm)
 
 source("cv_subset.R")
 
@@ -42,11 +43,14 @@ ggplot(uncenter(za.df), aes(CostPerSlice, Rating, color=HeatSource)) + geom_poin
 # basics with linear model
 
 
-# full pooling
+# full (complete) pooling
 lm.full.main <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df)
-lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource + BrickOven + CostPerSlice:BrickOven, data=za.df)
+display(lm.full.main, detail=TRUE)
+lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource + BrickOven, data=za.df)
+display(lm.full.int, detail=TRUE)
+
 AIC(lm.full.main, lm.full.int) 
-summary(lm.full.main)
+
 set.seed(11102)
 cvsub.glm(za.df, lm.full.main, K=10, cv.subset=inchinatown)$delta
 #set.seed(11102)
@@ -91,8 +95,8 @@ set.seed(11102)
 cvsub.lme(za.df, lm.me.cost, K=10, cv.subset = inchinatown)$delta #[[2]]
 
 # lmer is great, but it's difficult to predict from it!
-#lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
-#	data=za.df)
+lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
+	data=za.df)
 #AIC(lm.me.cost2)
 
 #ranef(lm.me.cost2)
@@ -118,4 +122,46 @@ base.plot +
 	geom_smooth(aes(y=lme.pred), method='lm', se=FALSE, size=1.5) +
 	opts(title='Partial Pooling (Hierarchical)')
 
+
+# using sim() to simulate full distribution of predictions
+
+num.sims <- 1000
+lfi.sim <- sim(lm.full.int, num.sims)
+
+# have to manually construct the predictor matrix, which is a bit
+# tedious. predict() lets you avoid that, but at the cost of less
+# flexibility.
+colnames(lfi.sim$coef)
+X.new <- cbind(1, 2.99-mean.cps, 0, 1, 0, 0, 2.99-mean.cps)
+
+y.lfi.new <- array(NA, c(num.sims, nrow(X.new)))
+for (s in 1:num.sims) {
+  y.lfi.new[s, ] <- rnorm(nrow(X.new), 
+			    X.new %*% lfi.sim$coef[s, ], 
+			    lfi.sim$sigma[s])
+}
+y.est <- data.frame(rating=y.lfi.new + mean.rating, type='FullPooling')
+ggplot(y.est, aes(rating, fill=type,color=type)) + geom_histogram(alpha=.5)
+
+# do the same with no-pooling (neighborhood as factor)
+lni.sim <- sim(lm.no.int, num.sims)
+colnames(lni.sim$coef)
+X.new <- cbind(1, 0, 1, 0, 2.99-mean.cps, 0, 0, 0, 0, 0, 0, 0, 0)
+y.lni.new <- array(NA, c(num.sims, nrow(X.new)))
+for (s in 1:num.sims) {
+  y.lni.new[s, ] <- rnorm(nrow(X.new), 
+			    X.new %*% lni.sim$coef[s, ], 
+			    lni.sim$sigma[s])
+}
+y.est <- rbind(y.est,
+	data.frame(rating=y.lni.new + mean.rating, type='NoPooling'))
+
+ggplot(y.est, aes(rating, fill=type,color=type)) + 
+	geom_density(alpha=.5, position='identity',size=1) +
+	geom_vline(xintercept=mean.rating)
+
+# and again with partial pooling
+
+lmc.sim <- sim(lm.me.cost2, num.sims)
+TODO
 
