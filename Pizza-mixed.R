@@ -1,18 +1,20 @@
 # Pizza data analysis with mixed-effects modeling
+# Harlan D. Harris, Jared Lander
+# for NYC Predictive Analytics Meetup
+# October 14th, 2010
 
 library(stringr)
 library(ggplot2)
 library(nlme)
 library(lme4)
-library(boot)
+library(boot) # probably not needed
 library(arm)
 
+# custom routines to cross-validate lm and lme (but not mer) regressions,
+# using all of the data to train, but only a subset to test
 source("cv_subset.R")
 
 za.df <- read.csv("Fake Pizza Data.csv")
-
-# some basic summaries and visualizations
-summary(za.df)
 
 # fix cost column
 za.df$CostPerSlice <- as.numeric(str_sub(za.df$CostPerSlice, 2))
@@ -21,6 +23,10 @@ za.df$CostPerSlice <- as.numeric(str_sub(za.df$CostPerSlice, 2))
 contrasts(za.df$HeatSource) <- contr.treatment(levels(za.df$HeatSource), 
 	base=which(levels(za.df$HeatSource) == 'Gas'))
 
+# some basic summaries and visualizations
+summary(za.df)
+
+# we'll use this later for cross-validation
 inchinatown <- za.df$Neighborhood == 'Chinatown'
 
 # center the scalars, and construct a function to uncenter them
@@ -33,9 +39,11 @@ center <- function(df) transform(df, CostPerSlice=CostPerSlice-mean.cps,
 uncenter <- function(df) transform(df, CostPerSlice=CostPerSlice+mean.cps,
 			Rating=Rating+mean.rating)
 
+# some quick visualizations
 qplot(za.df$Rating)
 qplot(za.df$CostPerSlice, binwidth=.25)
 
+# raw data, plus simple lm fits (Rating ~ CPS only) per neighborhood
 ggplot(uncenter(za.df), aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
 	facet_wrap(~ Neighborhood) + 
 	geom_smooth(aes(color=NULL), color='black', method='lm', se=FALSE, size=2)
@@ -97,6 +105,7 @@ cvsub.lme(za.df, lm.me.cost, K=10, cv.subset = inchinatown)$delta #[[2]]
 # lmer is great, but it's difficult to predict from it!
 lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
 	data=za.df)
+display(lm.me.cost2, detail=TRUE)
 #AIC(lm.me.cost2)
 
 #ranef(lm.me.cost2)
@@ -125,14 +134,15 @@ base.plot +
 
 # using sim() to simulate full distribution of predictions
 
-num.sims <- 1000
+num.sims <- 10000
 lfi.sim <- sim(lm.full.int, num.sims)
+new.za.cps <- 4.20
 
 # have to manually construct the predictor matrix, which is a bit
 # tedious. predict() lets you avoid that, but at the cost of less
 # flexibility.
 colnames(lfi.sim$coef)
-X.new <- cbind(1, 2.99-mean.cps, 0, 1, 0, 0, 2.99-mean.cps)
+X.new <- cbind(1, new.za.cps-mean.cps, 0, 1, 0, 0, new.za.cps-mean.cps)
 
 y.lfi.new <- array(NA, c(num.sims, nrow(X.new)))
 for (s in 1:num.sims) {
@@ -146,7 +156,7 @@ ggplot(y.est, aes(rating, fill=type,color=type)) + geom_histogram(alpha=.5)
 # do the same with no-pooling (neighborhood as factor)
 lni.sim <- sim(lm.no.int, num.sims)
 colnames(lni.sim$coef)
-X.new <- cbind(1, 0, 1, 0, 2.99-mean.cps, 0, 0, 0, 0, 0, 0, 0, 0)
+X.new <- cbind(1, 0, 1, 0, new.za.cps-mean.cps, 1, 0, 0, 0, new.za.cps-mean.cps, 0, 0, 0)
 y.lni.new <- array(NA, c(num.sims, nrow(X.new)))
 for (s in 1:num.sims) {
   y.lni.new[s, ] <- rnorm(nrow(X.new), 
@@ -162,6 +172,39 @@ ggplot(y.est, aes(rating, fill=type,color=type)) +
 
 # and again with partial pooling
 
+# first existing neighborhood (same as before)
 lmc.sim <- sim(lm.me.cost2, num.sims)
-TODO
+colnames(lmc.sim$fixef)
+dimnames(lmc.sim$Neighborhood)
+X.new.fixed <- cbind(1, 0, 1, 0)
+X.new.rand <- cbind(1, new.za.cps-mean.cps)
+y.lmc.new <- array(NA, c(num.sims, nrow(X.new.fixed)))
+for (s in 1:num.sims) {
+  y.lmc.new[s, ] <- rnorm(nrow(X.new), 
+			    X.new.fixed %*% lmc.sim$fixef[s, ] +
+			    X.new.rand %*% lmc.sim$Neighborhood[s , 'Chinatown', ], 
+			    lmc.sim$sigma[s])
+}
+y.est <- rbind(y.est,
+	data.frame(rating=y.lmc.new + mean.rating, type='PartialPooling'))
+
+ggplot(y.est, aes(rating, fill=type,color=type)) + 
+	geom_density(alpha=.5, position='identity',size=1) +
+	geom_vline(xintercept=mean.rating)
+
+# and now a new neighborhood
+y.lmc.new2 <- array(NA, c(num.sims, nrow(X.new.fixed)))
+for (s in 1:num.sims) {
+  ranef.sample <- mvrnorm(nrow(X.new), c(0,0),  VarCorr(lm.me.cost2)$Neighborhood)
+  y.lmc.new2[s, ] <- rnorm(nrow(X.new), 
+			    X.new.fixed %*% lmc.sim$fixef[s, ] +
+			    X.new.rand %*% ranef.sample, 
+			    lmc.sim$sigma[s])
+}
+y.est <- rbind(y.est,
+	data.frame(rating=y.lmc.new2 + mean.rating, type='PartialPooling(New)'))
+
+ggplot(y.est, aes(rating, fill=type,color=type)) + 
+	geom_density(alpha=.5, position='identity',size=1) +
+	geom_vline(xintercept=mean.rating)
 
