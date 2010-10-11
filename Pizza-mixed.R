@@ -14,10 +14,10 @@ library(arm)
 # using all of the data to train, but only a subset to test
 source("cv_subset.R")
 
-za.df <- read.csv("Fake Pizza Data.csv")
+za.df <- read.csv("Fake Pizza Data.csv")[,c(1,2,3,5)]
 
 # fix cost column
-za.df$CostPerSlice <- as.numeric(str_sub(za.df$CostPerSlice, 2))
+#za.df$CostPerSlice <- as.numeric(str_sub(za.df$CostPerSlice, 2))
 
 # get the contrasts right for HeatSource
 contrasts(za.df$HeatSource) <- contr.treatment(levels(za.df$HeatSource), 
@@ -40,47 +40,62 @@ uncenter <- function(df) transform(df, CostPerSlice=CostPerSlice+mean.cps,
 			Rating=Rating+mean.rating)
 
 # some quick visualizations
-qplot(za.df$Rating)
-qplot(za.df$CostPerSlice, binwidth=.25)
+#qplot(za.df$Rating, binwidth=.25)
+#qplot(za.df$CostPerSlice, binwidth=.25)
 
 # raw data, plus simple lm fits (Rating ~ CPS only) per neighborhood
-ggplot(uncenter(za.df), aes(CostPerSlice, Rating, color=HeatSource)) + geom_point() +
+ggplot(uncenter(za.df), aes(CostPerSlice, Rating, color=HeatSource)) + geom_jitter() +
 	facet_wrap(~ Neighborhood) + 
 	geom_smooth(aes(color=NULL), color='black', method='lm', se=FALSE, size=2)
 
-# basics with linear model
-
+# First we're going to fit a couple of versions of a standard linear model,
+# intially main effects only, then with the two biggest predictors interacting.
 
 # full (complete) pooling
-lm.full.main <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df)
-display(lm.full.main, detail=TRUE)
-lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource + BrickOven, data=za.df)
+lm.full.main <- glm(Rating ~ CostPerSlice + HeatSource, data=za.df)
+display(lm.full.main, detail=TRUE) # from arm package
+lm.full.int <- glm(Rating ~ CostPerSlice * HeatSource, data=za.df)
 display(lm.full.int, detail=TRUE)
 
 AIC(lm.full.main, lm.full.int) 
+# interaction isn't provably better, but it might predict a bit better
 
+# CV the simpler model, all data, then Chinatown only
+set.seed(11102)
+cvsub.glm(za.df, lm.full.main, K=10)$delta
 set.seed(11102)
 cvsub.glm(za.df, lm.full.main, K=10, cv.subset=inchinatown)$delta
-#set.seed(11102)
-#cv.glm(za.df, lm.full.int, K=10)$delta[[2]] # overfitting
+# CV the interaction model, all data, then Chinatown only
+set.seed(11102)
+cvsub.glm(za.df, lm.full.int, K=10)$delta # overfitting
+set.seed(11102)
+cvsub.glm(za.df, lm.full.int, K=10, cv.subset=inchinatown)$delta # overfitting
+# interaction model a bit better!
 
-za.df$lm.full.pred <- predict(lm.full.main)
+# add the ML predictions of the full-pooling better to the df for viz later
+za.df$lm.full.pred <- predict(lm.full.int)
 
-# no pooling
-lm.no <- glm(Rating ~ CostPerSlice + HeatSource + BrickOven + Neighborhood, 
-		data=za.df,
-		contrasts=list(Neighborhood="contr.sum"))
+# Next: a no-pooling model, treating the levels of Neighborhood as
+# factors.
+lm.no <- glm(Rating ~ CostPerSlice + HeatSource + Neighborhood, 
+		data=za.df)
+#		contrasts=list(Neighborhood="contr.sum")) 
+# contr.sum forces 
 
+set.seed(11102)
+cvsub.glm(za.df, lm.no, K=10)$delta
 set.seed(11102)
 cvsub.glm(za.df, lm.no, K=10, cv.subset=inchinatown)$delta #[[2]]
 
 summary(lm.no)
 
 
-lm.no.int <- glm(Rating ~ HeatSource + BrickOven + CostPerSlice * Neighborhood, 
+lm.no.int <- glm(Rating ~ HeatSource + CostPerSlice * Neighborhood, 
 		data=za.df,
 		contrasts=list(Neighborhood="contr.sum"))
 
+set.seed(11102)
+cvsub.glm(za.df, lm.no.int, K=10)$delta
 set.seed(11102)
 cvsub.glm(za.df, lm.no.int, K=10, cv.subset=inchinatown)$delta #[[2]]
 
@@ -89,21 +104,23 @@ summary(lm.no.int)
 za.df$lm.no.pred <- predict(lm.no.int)
 
 # partial pooling, intercepts/neighborhood
-lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource + BrickOven, data=za.df,
+lm.me.int <- lme(Rating ~ CostPerSlice + HeatSource, data=za.df,
 		random = ~ 1 | Neighborhood)
 AIC(lm.me.int)
-lm.me.cost <- lme(Rating ~ 1 + HeatSource + BrickOven, data=za.df,
-		random = ~ 0 + CostPerSlice | Neighborhood, 
+lm.me.cost <- lme(Rating ~ 1 + CostPerSlice + HeatSource, data=za.df,
+		random = ~ 1 + CostPerSlice | Neighborhood, 
 		control=list(returnObject=TRUE, msMaxEval=1000)) #, opt="optim"
 AIC(lm.full.main, lm.no, lm.no.int, lm.me.int, lm.me.cost)
 
 za.df$lme.pred <- predict(lm.me.cost)
 
 set.seed(11102)
+cvsub.lme(za.df, lm.me.cost, K=10)$delta
+set.seed(11102)
 cvsub.lme(za.df, lm.me.cost, K=10, cv.subset = inchinatown)$delta #[[2]]
 
 # lmer is great, but it's difficult to predict from it!
-lm.me.cost2 <- lmer(Rating ~ HeatSource + BrickOven + (1+CostPerSlice | Neighborhood), 
+lm.me.cost2 <- lmer(Rating ~ HeatSource +CostPerSlice + (1+CostPerSlice | Neighborhood), 
 	data=za.df)
 display(lm.me.cost2, detail=TRUE)
 #AIC(lm.me.cost2)
@@ -142,7 +159,7 @@ new.za.cps <- 4.20
 # tedious. predict() lets you avoid that, but at the cost of less
 # flexibility.
 colnames(lfi.sim$coef)
-X.new <- cbind(1, new.za.cps-mean.cps, 0, 1, 0, 0, new.za.cps-mean.cps)
+X.new <- cbind(1, new.za.cps-mean.cps, 0, 1, 0, new.za.cps-mean.cps)
 
 y.lfi.new <- array(NA, c(num.sims, nrow(X.new)))
 for (s in 1:num.sims) {
@@ -156,7 +173,7 @@ ggplot(y.est, aes(rating, fill=type,color=type)) + geom_histogram(alpha=.5)
 # do the same with no-pooling (neighborhood as factor)
 lni.sim <- sim(lm.no.int, num.sims)
 colnames(lni.sim$coef)
-X.new <- cbind(1, 0, 1, 0, new.za.cps-mean.cps, 1, 0, 0, 0, new.za.cps-mean.cps, 0, 0, 0)
+X.new <- cbind(1, 0, 1, new.za.cps-mean.cps, 1, 0, 0, 0, new.za.cps-mean.cps, 0, 0, 0)
 y.lni.new <- array(NA, c(num.sims, nrow(X.new)))
 for (s in 1:num.sims) {
   y.lni.new[s, ] <- rnorm(nrow(X.new), 
@@ -176,7 +193,7 @@ ggplot(y.est, aes(rating, fill=type,color=type)) +
 lmc.sim <- sim(lm.me.cost2, num.sims)
 colnames(lmc.sim$fixef)
 dimnames(lmc.sim$Neighborhood)
-X.new.fixed <- cbind(1, 0, 1, 0)
+X.new.fixed <- cbind(1, 0, 1, new.za.cps-mean.cps)
 X.new.rand <- cbind(1, new.za.cps-mean.cps)
 y.lmc.new <- array(NA, c(num.sims, nrow(X.new.fixed)))
 for (s in 1:num.sims) {
