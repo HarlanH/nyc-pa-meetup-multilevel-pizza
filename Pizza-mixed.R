@@ -14,6 +14,9 @@ library(arm)
 # using all of the data to train, but only a subset to test
 source("cv_subset.R")
 
+# Jared's routines for plotting regression coefficients with ggplot2.
+source("plotCoef.r")
+
 za.df <- read.csv("Fake Pizza Data.csv")[,c(1,2,3,5)]
 
 # fix cost column
